@@ -5,6 +5,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Slider } from "@/components/ui/slider";
 
 type Track = {
+  id: string;
   file: File;
   buffer: AudioBuffer;
   duration: number;
@@ -66,7 +67,12 @@ const App = () => {
     for (const file of Array.from(files)) {
       const buf = await file.arrayBuffer();
       const audioBuf = await ctx.decodeAudioData(buf);
-      loaded.push({ file, buffer: audioBuf, duration: audioBuf.duration });
+      loaded.push({
+        id: crypto.randomUUID(),
+        file,
+        buffer: audioBuf,
+        duration: audioBuf.duration,
+      });
     }
 
     setTracks(loaded);
