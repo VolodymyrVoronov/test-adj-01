@@ -19,6 +19,7 @@ const App = () => {
   const masterGainRef = useRef<GainNode | null>(null);
   const analyserRef = useRef<AnalyserNode | null>(null);
   const waveformCanvasRef = useRef<HTMLCanvasElement>(null);
+  const eqNodesRef = useRef<BiquadFilterNode[]>([]);
 
   // Playback refs
   const activeSourcesRef = useRef<AudioBufferSourceNode[]>([]);
@@ -34,6 +35,11 @@ const App = () => {
   const [currentTrackIndex, setCurrentTrackIndex] = useState<number | null>(
     null
   );
+  const [eq, setEq] = useState({
+    low: 0,
+    mid: 0,
+    high: 0,
+  });
 
   // ---------------------------------
   // Init AudioContext (user gesture)
@@ -42,17 +48,38 @@ const App = () => {
   const initAudio = () => {
     if (!audioCtxRef.current) {
       const ctx = new AudioContext();
+
+      // EQ filters
+      const low = ctx.createBiquadFilter();
+      low.type = "lowshelf";
+      low.frequency.value = 120;
+
+      const mid = ctx.createBiquadFilter();
+      mid.type = "peaking";
+      mid.frequency.value = 1000;
+      mid.Q.value = 1;
+
+      const high = ctx.createBiquadFilter();
+      high.type = "highshelf";
+      high.frequency.value = 6000;
+
+      // Gain + analyser
       const gain = ctx.createGain();
       const analyser = ctx.createAnalyser();
-
       analyser.fftSize = 256;
 
+      // Wiring:
+      // source -> EQ -> gain -> analyser -> speakers
+      low.connect(mid);
+      mid.connect(high);
+      high.connect(gain);
       gain.connect(analyser);
       analyser.connect(ctx.destination);
 
       audioCtxRef.current = ctx;
-      masterGainRef.current = gain;
+      masterGainRef.current = low; // sources connect here
       analyserRef.current = analyser;
+      eqNodesRef.current = [low, mid, high];
     }
   };
 
@@ -353,6 +380,58 @@ const App = () => {
             height={100}
             className="rounded-2xl border w-full"
           />
+
+          <div className="space-y-4">
+            <h2 className="font-semibold">Equalizer</h2>
+
+            <div>
+              <label className="text-sm">Bass</label>
+              <Slider
+                min={-20}
+                max={20}
+                step={1}
+                value={[eq.low]}
+                onValueChange={(v) => {
+                  setEq((e) => ({ ...e, low: v[0] }));
+                  if (eqNodesRef.current[0]) {
+                    eqNodesRef.current[0].gain.value = v[0];
+                  }
+                }}
+              />
+            </div>
+
+            <div>
+              <label className="text-sm">Mid</label>
+              <Slider
+                min={-20}
+                max={20}
+                step={1}
+                value={[eq.mid]}
+                onValueChange={(v) => {
+                  setEq((e) => ({ ...e, mid: v[0] }));
+                  if (eqNodesRef.current[1]) {
+                    eqNodesRef.current[1].gain.value = v[0];
+                  }
+                }}
+              />
+            </div>
+
+            <div>
+              <label className="text-sm">Treble</label>
+              <Slider
+                min={-20}
+                max={20}
+                step={1}
+                value={[eq.high]}
+                onValueChange={(v) => {
+                  setEq((e) => ({ ...e, high: v[0] }));
+                  if (eqNodesRef.current[2]) {
+                    eqNodesRef.current[2].gain.value = v[0];
+                  }
+                }}
+              />
+            </div>
+          </div>
 
           <div
             className="h-40 rounded-2xl transition-all"
