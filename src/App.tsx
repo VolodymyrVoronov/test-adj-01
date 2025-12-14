@@ -41,6 +41,10 @@ const App = () => {
   );
   const [eqPreset, setEqPreset] = useState<"flat" | "club" | "bass">("flat");
   const [eqMix, setEqMix] = useState(1); // 1 = full EQ
+  const [visualPreset, setVisualPreset] = useState<
+    "purple" | "sunset" | "ocean"
+  >("purple");
+
   // ---------------------------------
   // Init AudioContext (user gesture)
   // ---------------------------------
@@ -237,6 +241,29 @@ const App = () => {
     startTimelineRef.current = 0;
     setTimelinePos(0);
     setIsPlaying(false);
+  };
+
+  const getVisualColors = () => {
+    switch (visualPreset) {
+      case "sunset":
+        return [
+          "rgba(255,94,0,",
+          "rgba(255,195,113,0.15)",
+          "rgba(255,94,0,0.6)",
+        ];
+      case "ocean":
+        return [
+          "rgba(0,123,255,",
+          "rgba(0,200,255,0.15)",
+          "rgba(0,123,255,0.6)",
+        ];
+      default:
+        return [
+          "rgba(139,92,246,",
+          "rgba(59,130,246,0.15)",
+          "rgba(139,92,246,0.6)",
+        ];
+    }
   };
 
   // ---------------------------------
@@ -481,11 +508,34 @@ const App = () => {
           <div
             className="h-40 rounded-2xl transition-all"
             style={{
-              background: `radial-gradient(circle, rgba(139,92,246,${energy}), rgba(59,130,246,0.15))`,
+              background: `radial-gradient(circle, ${
+                getVisualColors()[0]
+              }${energy}), ${getVisualColors()[1]})`,
               transform: `scale(${1 + energy * 0.05})`,
-              boxShadow: `0 0 ${energy * 60}px rgba(139,92,246,0.6)`,
+              boxShadow: `0 0 ${energy * 60}px ${getVisualColors()[2]}`,
             }}
           />
+
+          <div className="flex gap-2">
+            <Button
+              onClick={() => setVisualPreset("purple")}
+              variant={visualPreset === "purple" ? "default" : "outline"}
+            >
+              Purple
+            </Button>
+            <Button
+              onClick={() => setVisualPreset("sunset")}
+              variant={visualPreset === "sunset" ? "default" : "outline"}
+            >
+              Sunset
+            </Button>
+            <Button
+              onClick={() => setVisualPreset("ocean")}
+              variant={visualPreset === "ocean" ? "default" : "outline"}
+            >
+              Ocean
+            </Button>
+          </div>
         </CardContent>
       </Card>
     </div>
