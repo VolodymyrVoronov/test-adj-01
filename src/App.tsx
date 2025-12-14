@@ -20,6 +20,10 @@ const App = () => {
   const analyserRef = useRef<AnalyserNode | null>(null);
   const waveformCanvasRef = useRef<HTMLCanvasElement>(null);
   const eqNodesRef = useRef<BiquadFilterNode[]>([]);
+  const eqDryGainRef = useRef<GainNode | null>(null);
+  const eqWetGainRef = useRef<GainNode | null>(null);
+  const limiterRef = useRef<DynamicsCompressorNode | null>(null);
+  const clipperRef = useRef<WaveShaperNode | null>(null);
 
   // Playback refs
   const activeSourcesRef = useRef<AudioBufferSourceNode[]>([]);
@@ -35,17 +39,13 @@ const App = () => {
   const [currentTrackIndex, setCurrentTrackIndex] = useState<number | null>(
     null
   );
-  const [eq, setEq] = useState({
-    low: 0,
-    mid: 0,
-    high: 0,
-  });
-
+  const [eqPreset, setEqPreset] = useState<"flat" | "club" | "bass">("flat");
+  const [eqMix, setEqMix] = useState(1); // 1 = full EQ
   // ---------------------------------
   // Init AudioContext (user gesture)
   // ---------------------------------
 
-  const initAudio = () => {
+  const initAudio = useCallback(() => {
     if (!audioCtxRef.current) {
       const ctx = new AudioContext();
 
@@ -63,53 +63,91 @@ const App = () => {
       high.type = "highshelf";
       high.frequency.value = 6000;
 
-      // Gain + analyser
-      const gain = ctx.createGain();
+      // Dry / Wet gains for EQ
+      const dryGain = ctx.createGain();
+      const wetGain = ctx.createGain();
+
+      // Limiter (DynamicsCompressor)
+      const limiter = ctx.createDynamicsCompressor();
+      limiter.threshold.value = -1;
+      limiter.knee.value = 0;
+      limiter.ratio.value = 20;
+      limiter.attack.value = 0.003;
+      limiter.release.value = 0.1;
+
+      // Soft clipper
+      const clipper = ctx.createWaveShaper();
+      const curve = new Float32Array(44100);
+      for (let i = 0; i < curve.length; i++) {
+        const x = (i * 2) / curve.length - 1;
+        curve[i] = Math.tanh(x * 2);
+      }
+      clipper.curve = curve;
+      clipper.oversample = "4x";
+
+      const masterGain = ctx.createGain();
       const analyser = ctx.createAnalyser();
       analyser.fftSize = 256;
 
-      // Wiring:
-      // source -> EQ -> gain -> analyser -> speakers
+      // Wiring: Dry path
+      masterGain.connect(dryGain);
+      dryGain.connect(analyser);
+
+      // Wiring: Wet path
+      masterGain.connect(low);
       low.connect(mid);
       mid.connect(high);
-      high.connect(gain);
-      gain.connect(analyser);
+      high.connect(limiter);
+      limiter.connect(clipper);
+      clipper.connect(wetGain);
+      wetGain.connect(analyser);
+
       analyser.connect(ctx.destination);
 
       audioCtxRef.current = ctx;
-      masterGainRef.current = low; // sources connect here
+      masterGainRef.current = masterGain;
       analyserRef.current = analyser;
       eqNodesRef.current = [low, mid, high];
+      eqDryGainRef.current = dryGain;
+      eqWetGainRef.current = wetGain;
+      limiterRef.current = limiter;
+      clipperRef.current = clipper;
+
+      dryGain.gain.value = 1 - eqMix;
+      wetGain.gain.value = eqMix;
     }
-  };
+  }, [eqMix]);
 
   // ---------------------------------
   // Load files
   // ---------------------------------
 
-  const handleFiles = useCallback(async (files: FileList | null) => {
-    if (!files) return;
-    initAudio();
+  const handleFiles = useCallback(
+    async (files: FileList | null) => {
+      if (!files) return;
+      initAudio();
 
-    const ctx = audioCtxRef.current!;
-    const loaded: Track[] = [];
+      const ctx = audioCtxRef.current!;
+      const loaded: Track[] = [];
 
-    for (const file of Array.from(files)) {
-      const buf = await file.arrayBuffer();
-      const audioBuf = await ctx.decodeAudioData(buf);
-      loaded.push({
-        id: crypto.randomUUID(),
-        file,
-        buffer: audioBuf,
-        duration: audioBuf.duration,
-      });
-    }
+      for (const file of Array.from(files)) {
+        const buf = await file.arrayBuffer();
+        const audioBuf = await ctx.decodeAudioData(buf);
+        loaded.push({
+          id: crypto.randomUUID(),
+          file,
+          buffer: audioBuf,
+          duration: audioBuf.duration,
+        });
+      }
 
-    setTracks(loaded);
+      setTracks(loaded);
 
-    const total = loaded.reduce((acc, t) => acc + t.duration, 0);
-    setTotalDuration(total);
-  }, []);
+      const total = loaded.reduce((acc, t) => acc + t.duration, 0);
+      setTotalDuration(total);
+    },
+    [initAudio]
+  );
 
   // ---------------------------------
   // Stop all active sources
@@ -381,56 +419,63 @@ const App = () => {
             className="rounded-2xl border w-full"
           />
 
-          <div className="space-y-4">
-            <h2 className="font-semibold">Equalizer</h2>
-
-            <div>
-              <label className="text-sm">Bass</label>
-              <Slider
-                min={-20}
-                max={20}
-                step={1}
-                value={[eq.low]}
-                onValueChange={(v) => {
-                  setEq((e) => ({ ...e, low: v[0] }));
-                  if (eqNodesRef.current[0]) {
-                    eqNodesRef.current[0].gain.value = v[0];
-                  }
+          <div className="space-y-2">
+            <label className="font-medium">EQ Presets</label>
+            <div className="flex gap-2">
+              <Button
+                variant={eqPreset === "flat" ? "default" : "outline"}
+                onClick={() => {
+                  setEqPreset("flat");
+                  eqNodesRef.current[0].gain.value = 0;
+                  eqNodesRef.current[1].gain.value = 0;
+                  eqNodesRef.current[2].gain.value = 0;
                 }}
-              />
-            </div>
+              >
+                Flat
+              </Button>
 
-            <div>
-              <label className="text-sm">Mid</label>
-              <Slider
-                min={-20}
-                max={20}
-                step={1}
-                value={[eq.mid]}
-                onValueChange={(v) => {
-                  setEq((e) => ({ ...e, mid: v[0] }));
-                  if (eqNodesRef.current[1]) {
-                    eqNodesRef.current[1].gain.value = v[0];
-                  }
+              <Button
+                variant={eqPreset === "club" ? "default" : "outline"}
+                onClick={() => {
+                  setEqPreset("club");
+                  eqNodesRef.current[0].gain.value = 4;
+                  eqNodesRef.current[1].gain.value = 2;
+                  eqNodesRef.current[2].gain.value = 4;
                 }}
-              />
-            </div>
+              >
+                Club
+              </Button>
 
-            <div>
-              <label className="text-sm">Treble</label>
-              <Slider
-                min={-20}
-                max={20}
-                step={1}
-                value={[eq.high]}
-                onValueChange={(v) => {
-                  setEq((e) => ({ ...e, high: v[0] }));
-                  if (eqNodesRef.current[2]) {
-                    eqNodesRef.current[2].gain.value = v[0];
-                  }
+              <Button
+                variant={eqPreset === "bass" ? "default" : "outline"}
+                onClick={() => {
+                  setEqPreset("bass");
+                  eqNodesRef.current[0].gain.value = 8;
+                  eqNodesRef.current[1].gain.value = -2;
+                  eqNodesRef.current[2].gain.value = 3;
                 }}
-              />
+              >
+                Bass Boost
+              </Button>
             </div>
+          </div>
+
+          <div className="space-y-1">
+            <label className="text-sm">EQ Mix (Dry / Wet)</label>
+            <Slider
+              min={0}
+              max={1}
+              step={0.01}
+              value={[eqMix]}
+              onValueChange={(v) => {
+                const mix = v[0];
+                setEqMix(mix);
+                if (eqDryGainRef.current && eqWetGainRef.current) {
+                  eqDryGainRef.current.gain.value = 1 - mix;
+                  eqWetGainRef.current.gain.value = mix;
+                }
+              }}
+            />
           </div>
 
           <div
