@@ -31,6 +31,9 @@ const App = () => {
   const [timelinePos, setTimelinePos] = useState(0);
   const [totalDuration, setTotalDuration] = useState(0);
   const [energy, setEnergy] = useState(0);
+  const [currentTrackIndex, setCurrentTrackIndex] = useState<number | null>(
+    null
+  );
 
   // ---------------------------------
   // Init AudioContext (user gesture)
@@ -111,13 +114,19 @@ const App = () => {
 
     let cursor = timelineSeconds;
     let ctxTime = ctx.currentTime + 0.05;
+    let foundCurrent = false;
 
-    tracks.forEach((track) => {
+    tracks.forEach((track, index) => {
       const dur = track.duration;
 
       if (cursor >= dur) {
         cursor -= dur;
         return;
+      }
+
+      if (!foundCurrent) {
+        setCurrentTrackIndex(index);
+        foundCurrent = true;
       }
 
       const src = ctx.createBufferSource();
@@ -260,38 +269,52 @@ const App = () => {
           />
 
           <div className="space-y-2">
-            {tracks.map((t, i) => (
-              <div
-                key={i}
-                className="flex justify-between items-center border p-2 rounded"
-              >
-                <span className="truncate max-w-[70%]">{t.file.name}</span>
-                <div className="flex gap-1">
-                  <Button
-                    size="sm"
-                    disabled={i === 0}
-                    onClick={() => {
-                      const n = [...tracks];
-                      [n[i - 1], n[i]] = [n[i], n[i - 1]];
-                      setTracks(n);
-                    }}
-                  >
-                    ↑
-                  </Button>
-                  <Button
-                    size="sm"
-                    disabled={i === tracks.length - 1}
-                    onClick={() => {
-                      const n = [...tracks];
-                      [n[i + 1], n[i]] = [n[i], n[i + 1]];
-                      setTracks(n);
-                    }}
-                  >
-                    ↓
-                  </Button>
+            {tracks.map((t, i) => {
+              const isPlayingTrack = currentTrackIndex === i;
+
+              return (
+                <div
+                  key={t.id}
+                  className={`flex justify-between items-center border p-2 rounded transition
+                            ${
+                              isPlayingTrack
+                                ? "bg-violet-500/10 border-violet-500"
+                                : ""
+                            }`}
+                >
+                  <span className="truncate max-w-[70%]">
+                    {t.file.name}
+                    {isPlayingTrack && "  ▶ Playing"}
+                  </span>
+
+                  <div className="flex gap-1">
+                    <Button
+                      size="sm"
+                      disabled={i === 0 || isPlayingTrack}
+                      onClick={() => {
+                        const n = [...tracks];
+                        [n[i - 1], n[i]] = [n[i], n[i - 1]];
+                        setTracks(n);
+                      }}
+                    >
+                      ↑
+                    </Button>
+
+                    <Button
+                      size="sm"
+                      disabled={i === tracks.length - 1 || isPlayingTrack}
+                      onClick={() => {
+                        const n = [...tracks];
+                        [n[i + 1], n[i]] = [n[i], n[i + 1]];
+                        setTracks(n);
+                      }}
+                    >
+                      ↓
+                    </Button>
+                  </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
 
           <div className="space-y-2">
