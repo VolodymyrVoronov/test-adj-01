@@ -190,6 +190,11 @@ const App = () => {
 
   const scheduleFromTimeline = (timelineSeconds: number) => {
     if (!tracks.length) return;
+
+    if (!isPlaying && timelineSeconds >= totalDuration) {
+      timelineSeconds = 0;
+    }
+
     initAudio();
 
     const ctx = audioCtxRef.current!;
@@ -299,15 +304,16 @@ const App = () => {
 
   useEffect(() => {
     if (!isPlaying) return;
-
     const ctx = audioCtxRef.current!;
     const id = setInterval(() => {
       const elapsed = ctx.currentTime - startedAtCtxTimeRef.current;
-      setTimelinePos(
-        Math.min(startTimelineRef.current + elapsed, totalDuration)
-      );
+      const newPos = startTimelineRef.current + elapsed;
+      setTimelinePos(Math.min(newPos, totalDuration));
+      if (newPos >= totalDuration) {
+        setIsPlaying(false);
+        stopSources();
+      }
     }, 100);
-
     return () => clearInterval(id);
   }, [isPlaying, totalDuration]);
 
@@ -455,7 +461,10 @@ const App = () => {
           </div>
 
           <div className="flex gap-2">
-            <Button onClick={() => scheduleFromTimeline(timelinePos)}>
+            <Button
+              onClick={() => scheduleFromTimeline(timelinePos)}
+              disabled={isPlaying}
+            >
               Play
             </Button>
             <Button onClick={pausePlayback} disabled={!isPlaying}>
