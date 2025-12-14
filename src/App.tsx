@@ -138,6 +138,43 @@ const App = () => {
     }
   };
 
+  const deleteTrack = (trackId: string) => {
+    const trackIndex = tracks.findIndex((t) => t.id === trackId);
+    if (trackIndex === -1) return;
+
+    // Check if track is currently playing
+    let cursor = startTimelineRef.current;
+    let isTrackPlaying = false;
+    for (let i = 0; i < tracks.length; i++) {
+      const t = tracks[i];
+      if (cursor + t.duration > timelinePos) {
+        if (t.id === trackId && isPlaying) {
+          isTrackPlaying = true;
+        }
+        break;
+      }
+      cursor += t.duration;
+    }
+
+    if (!isTrackPlaying) {
+      const newTracks = tracks.filter((t) => t.id !== trackId);
+      setTracks(newTracks);
+
+      // Recalculate total duration
+      const newTotalDuration = newTracks.reduce(
+        (acc, t) => acc + t.duration,
+        0
+      );
+      setTotalDuration(newTotalDuration);
+
+      // Adjust timelinePos if it is beyond new total duration
+      if (timelinePos > newTotalDuration) {
+        setTimelinePos(newTotalDuration);
+        startTimelineRef.current = newTotalDuration;
+      }
+    }
+  };
+
   // ---------------------------------
   // Load files
   // ---------------------------------
@@ -415,6 +452,14 @@ const App = () => {
                   <div className="flex gap-1">
                     <Button
                       size="sm"
+                      disabled={isPlayingTrack}
+                      onClick={() => deleteTrack(t.id)}
+                    >
+                      X
+                    </Button>
+
+                    <Button
+                      size="sm"
                       disabled={i === 0 || isPlayingTrack}
                       onClick={() => {
                         const n = [...tracks];
@@ -463,7 +508,7 @@ const App = () => {
           <div className="flex gap-2">
             <Button
               onClick={() => scheduleFromTimeline(timelinePos)}
-              disabled={isPlaying}
+              disabled={isPlaying || !tracks.length}
             >
               Play
             </Button>
