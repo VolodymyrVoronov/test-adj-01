@@ -24,6 +24,7 @@ const App = () => {
   const eqWetGainRef = useRef<GainNode | null>(null);
   const limiterRef = useRef<DynamicsCompressorNode | null>(null);
   const clipperRef = useRef<WaveShaperNode | null>(null);
+  const sleepTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Playback refs
   const activeSourcesRef = useRef<AudioBufferSourceNode[]>([]);
@@ -44,6 +45,7 @@ const App = () => {
   const [visualPreset, setVisualPreset] = useState<
     "purple" | "sunset" | "ocean"
   >("purple");
+  const [sleepTime, setSleepTime] = useState<number | null>(null);
 
   // ---------------------------------
   // Init AudioContext (user gesture)
@@ -121,6 +123,20 @@ const App = () => {
       wetGain.gain.value = eqMix;
     }
   }, [eqMix]);
+
+  const scheduleSleepTimer = (seconds: number | null) => {
+    if (sleepTimeoutRef.current) {
+      clearTimeout(sleepTimeoutRef.current);
+      sleepTimeoutRef.current = null;
+    }
+    if (seconds !== null && seconds > 0) {
+      sleepTimeoutRef.current = setTimeout(() => {
+        stopAll();
+        setSleepTime(null);
+      }, seconds * 1000);
+      setSleepTime(seconds);
+    }
+  };
 
   // ---------------------------------
   // Load files
@@ -237,10 +253,21 @@ const App = () => {
   };
 
   const stopAll = () => {
-    stopSources();
+    activeSourcesRef.current.forEach((s) => {
+      try {
+        s.stop();
+      } catch {
+        console.log("Failed to stop source");
+      }
+    });
+    activeSourcesRef.current = [];
     startTimelineRef.current = 0;
     setTimelinePos(0);
     setIsPlaying(false);
+    if (sleepTimeoutRef.current) {
+      clearTimeout(sleepTimeoutRef.current);
+      sleepTimeoutRef.current = null;
+    }
   };
 
   const getVisualColors = () => {
@@ -437,6 +464,64 @@ const App = () => {
             <Button onClick={stopAll} disabled={!isPlaying}>
               Stop
             </Button>
+          </div>
+
+          <div className="flex gap-2 items-center">
+            <span>Sleep Timer:</span>
+            <Button
+              onClick={() => scheduleSleepTimer(600)}
+              variant={sleepTime === 600 ? "default" : "secondary"}
+            >
+              10 min
+            </Button>
+            <Button
+              onClick={() => scheduleSleepTimer(1200)}
+              variant={sleepTime === 1200 ? "default" : "secondary"}
+            >
+              20 min
+            </Button>
+            <Button
+              onClick={() => scheduleSleepTimer(1800)}
+              variant={sleepTime === 1800 ? "default" : "secondary"}
+            >
+              30 min
+            </Button>
+            <Button
+              onClick={() => scheduleSleepTimer(2400)}
+              variant={sleepTime === 2400 ? "default" : "secondary"}
+            >
+              40 min
+            </Button>
+            <Button
+              onClick={() => scheduleSleepTimer(3000)}
+              variant={sleepTime === 3000 ? "default" : "secondary"}
+            >
+              50 min
+            </Button>
+            <Button
+              onClick={() => scheduleSleepTimer(3600)}
+              variant={sleepTime === 3600 ? "default" : "secondary"}
+            >
+              1 hour
+            </Button>
+            <Button
+              onClick={() => scheduleSleepTimer(7200)}
+              variant={sleepTime === 7200 ? "default" : "secondary"}
+            >
+              2 hours
+            </Button>
+            <Button
+              onClick={() => scheduleSleepTimer(14400)}
+              variant={sleepTime === 14400 ? "default" : "secondary"}
+            >
+              4 hours
+            </Button>
+          </div>
+
+          <div className="text-sm text-muted-foreground">
+            {sleepTime
+              ? `Sleep timer: ${(sleepTime / 60).toFixed(0)} min`
+              : "No sleep timer set"}
           </div>
 
           <canvas
