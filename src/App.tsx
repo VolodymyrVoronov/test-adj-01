@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
+import { formatTime } from "./helpers";
+
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Slider } from "@/components/ui/slider";
@@ -46,6 +48,7 @@ const App = () => {
     "purple" | "sunset" | "ocean"
   >("purple");
   const [sleepTime, setSleepTime] = useState<number | null>(null);
+  const [sleepCountdown, setSleepCountdown] = useState<number | null>(null);
 
   // ---------------------------------
   // Init AudioContext (user gesture)
@@ -135,7 +138,16 @@ const App = () => {
         setSleepTime(null);
       }, seconds * 1000);
       setSleepTime(seconds);
+      setSleepCountdown(seconds);
     }
+  };
+
+  const resetSleepTimer = () => {
+    if (sleepTimeoutRef.current) {
+      clearTimeout(sleepTimeoutRef.current);
+      sleepTimeoutRef.current = null;
+    }
+    setSleepTime(null);
   };
 
   const deleteTrack = (trackId: string) => {
@@ -417,6 +429,25 @@ const App = () => {
     draw();
   }, [tracks, timelinePos, totalDuration]);
 
+  useEffect(() => {
+    if (sleepTime === null) {
+      return;
+    }
+
+    const interval = setInterval(() => {
+      setSleepCountdown((prev) => {
+        if (prev === null) return null;
+        if (prev <= 1) {
+          clearInterval(interval);
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+
+    return () => clearInterval(interval);
+  }, [sleepTime]);
+
   return (
     <div className="min-h-screen p-6 bg-background">
       <Card className="max-w-4xl mx-auto">
@@ -571,6 +602,17 @@ const App = () => {
               4 hours
             </Button>
           </div>
+
+          {sleepCountdown !== null && (
+            <div className="flex items-center gap-2">
+              <span className="text-sm text-muted-foreground">
+                Sleep timer ends in: {formatTime(sleepCountdown)}
+              </span>
+              <Button variant="outline" onClick={resetSleepTimer}>
+                Reset Sleep Timer
+              </Button>
+            </div>
+          )}
 
           <div className="text-sm text-muted-foreground">
             {sleepTime
