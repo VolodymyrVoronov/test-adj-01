@@ -1,58 +1,67 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { Disc3Icon } from "lucide-react";
+import { useCallback, useEffect, useRef, Suspense, lazy } from "react";
+import { useShallow } from "zustand/react/shallow";
 
-import { formatTime } from "./helpers";
+import { CROSSFADE_SECONDS } from "./constants";
+import { useAppStore } from "./store/app";
 
-import { Button } from "@/components/ui/button";
-import { Card, CardContent } from "@/components/ui/card";
-import { Slider } from "@/components/ui/slider";
+import TracksUploader from "./components/TracksUploader";
 
-type Track = {
-  id: string;
-  file: File;
-  buffer: AudioBuffer;
-  duration: number;
-};
+// import EQ from "./components/EQ";
+// import Player from "./components/Player";
+// import PlayerButtons from "./components/PlayerButtons";
+// import SleepTimer from "./components/SleepTimer";
+// import Tracks from "./components/Tracks";
+// import Visualizer from "./components/Visualizer";
+// import Volume from "./components/Volume";
+// import Waveform from "./components/Waveform";
 
-const CROSSFADE_SECONDS = 4;
+const EQ = lazy(() => import("./components/EQ"));
+const Player = lazy(() => import("./components/Player"));
+const PlayerButtons = lazy(() => import("./components/PlayerButtons"));
+const SleepTimer = lazy(() => import("./components/SleepTimer"));
+const Tracks = lazy(() => import("./components/Tracks"));
+const Visualizer = lazy(() => import("./components/Visualizer"));
+const Volume = lazy(() => import("./components/Volume"));
+const Waveform = lazy(() => import("./components/Waveform"));
 
 const App = () => {
-  // Audio core
   const audioCtxRef = useRef<AudioContext | null>(null);
   const masterGainRef = useRef<GainNode | null>(null);
   const analyserRef = useRef<AnalyserNode | null>(null);
-  const waveformCanvasRef = useRef<HTMLCanvasElement>(null);
   const eqNodesRef = useRef<BiquadFilterNode[]>([]);
   const eqDryGainRef = useRef<GainNode | null>(null);
   const eqWetGainRef = useRef<GainNode | null>(null);
   const limiterRef = useRef<DynamicsCompressorNode | null>(null);
   const clipperRef = useRef<WaveShaperNode | null>(null);
   const sleepTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  // Playback refs
   const activeSourcesRef = useRef<AudioBufferSourceNode[]>([]);
-  const startTimelineRef = useRef(0); // seconds
+  const startTimelineRef = useRef(0);
   const startedAtCtxTimeRef = useRef(0);
 
-  // State
-  const [tracks, setTracks] = useState<Track[]>([]);
-  const [isPlaying, setIsPlaying] = useState(false);
-  const [timelinePos, setTimelinePos] = useState(0);
-  const [totalDuration, setTotalDuration] = useState(0);
-  const [energy, setEnergy] = useState(0);
-  const [currentTrackIndex, setCurrentTrackIndex] = useState<number | null>(
-    null
+  const [
+    tracks,
+    isPlaying,
+    totalDuration,
+    eqMix,
+    setCurrentTrackIndex,
+    setIsPlaying,
+    setTimelinePos,
+    setSleepTime,
+    setSleepCountdown,
+  ] = useAppStore(
+    useShallow((state) => [
+      state.tracks,
+      state.isPlaying,
+      state.totalDuration,
+      state.eqMix,
+      state.setCurrentTrackIndex,
+      state.setIsPlaying,
+      state.setTimelinePos,
+      state.setSleepTime,
+      state.setSleepCountdown,
+    ]),
   );
-  const [eqPreset, setEqPreset] = useState<"flat" | "club" | "bass">("flat");
-  const [eqMix, setEqMix] = useState(1); // 1 = full EQ
-  const [visualPreset, setVisualPreset] = useState<
-    "purple" | "sunset" | "ocean"
-  >("purple");
-  const [sleepTime, setSleepTime] = useState<number | null>(null);
-  const [sleepCountdown, setSleepCountdown] = useState<number | null>(null);
-
-  // ---------------------------------
-  // Init AudioContext (user gesture)
-  // ---------------------------------
 
   const initAudio = useCallback(() => {
     if (!audioCtxRef.current) {
@@ -127,116 +136,6 @@ const App = () => {
     }
   }, [eqMix]);
 
-  const scheduleSleepTimer = (seconds: number | null) => {
-    if (sleepTimeoutRef.current) {
-      clearTimeout(sleepTimeoutRef.current);
-      sleepTimeoutRef.current = null;
-    }
-    if (seconds !== null && seconds > 0) {
-      sleepTimeoutRef.current = setTimeout(() => {
-        stopAll();
-        setSleepTime(null);
-      }, seconds * 1000);
-      setSleepTime(seconds);
-      setSleepCountdown(seconds);
-    }
-  };
-
-  const resetSleepTimer = () => {
-    if (sleepTimeoutRef.current) {
-      clearTimeout(sleepTimeoutRef.current);
-      sleepTimeoutRef.current = null;
-    }
-    setSleepTime(null);
-  };
-
-  const deleteTrack = (trackId: string) => {
-    const trackIndex = tracks.findIndex((t) => t.id === trackId);
-    if (trackIndex === -1) return;
-
-    // Check if track is currently playing
-    let cursor = startTimelineRef.current;
-    let isTrackPlaying = false;
-    for (let i = 0; i < tracks.length; i++) {
-      const t = tracks[i];
-      if (cursor + t.duration > timelinePos) {
-        if (t.id === trackId && isPlaying) {
-          isTrackPlaying = true;
-        }
-        break;
-      }
-      cursor += t.duration;
-    }
-
-    if (!isTrackPlaying) {
-      const newTracks = tracks.filter((t) => t.id !== trackId);
-      setTracks(newTracks);
-
-      // Recalculate total duration
-      const newTotalDuration = newTracks.reduce(
-        (acc, t) => acc + t.duration,
-        0
-      );
-      setTotalDuration(newTotalDuration);
-
-      // Adjust timelinePos if it is beyond new total duration
-      if (timelinePos > newTotalDuration) {
-        setTimelinePos(newTotalDuration);
-        startTimelineRef.current = newTotalDuration;
-      }
-    }
-  };
-
-  // ---------------------------------
-  // Load files
-  // ---------------------------------
-
-  const handleFiles = useCallback(
-    async (files: FileList | null) => {
-      if (!files) return;
-      initAudio();
-
-      const ctx = audioCtxRef.current!;
-      const loaded: Track[] = [];
-
-      for (const file of Array.from(files)) {
-        const buf = await file.arrayBuffer();
-        const audioBuf = await ctx.decodeAudioData(buf);
-        loaded.push({
-          id: crypto.randomUUID(),
-          file,
-          buffer: audioBuf,
-          duration: audioBuf.duration,
-        });
-      }
-
-      setTracks(loaded);
-
-      const total = loaded.reduce((acc, t) => acc + t.duration, 0);
-      setTotalDuration(total);
-    },
-    [initAudio]
-  );
-
-  // ---------------------------------
-  // Stop all active sources
-  // ---------------------------------
-
-  const stopSources = () => {
-    activeSourcesRef.current.forEach((s) => {
-      try {
-        s.stop();
-      } catch {
-        console.log("Failed to stop source");
-      }
-    });
-    activeSourcesRef.current = [];
-  };
-
-  // ---------------------------------
-  // Core playback engine (stateless)
-  // ---------------------------------
-
   const scheduleFromTimeline = (timelineSeconds: number) => {
     if (!tracks.length) return;
 
@@ -297,6 +196,17 @@ const App = () => {
     setIsPlaying(true);
   };
 
+  const stopSources = () => {
+    activeSourcesRef.current.forEach((s) => {
+      try {
+        s.stop();
+      } catch {
+        console.log("Failed to stop source");
+      }
+    });
+    activeSourcesRef.current = [];
+  };
+
   const pausePlayback = () => {
     if (!isPlaying) return;
     const ctx = audioCtxRef.current!;
@@ -304,6 +214,8 @@ const App = () => {
     startTimelineRef.current += elapsed;
     stopSources();
     setIsPlaying(false);
+    setSleepTime(null);
+    setSleepCountdown(null);
   };
 
   const stopAll = () => {
@@ -318,410 +230,105 @@ const App = () => {
     startTimelineRef.current = 0;
     setTimelinePos(0);
     setIsPlaying(false);
+    setCurrentTrackIndex(null);
     if (sleepTimeoutRef.current) {
       clearTimeout(sleepTimeoutRef.current);
       sleepTimeoutRef.current = null;
     }
-  };
 
-  const getVisualColors = () => {
-    switch (visualPreset) {
-      case "sunset":
-        return [
-          "rgba(255,94,0,",
-          "rgba(255,195,113,0.15)",
-          "rgba(255,94,0,0.6)",
-        ];
-      case "ocean":
-        return [
-          "rgba(0,123,255,",
-          "rgba(0,200,255,0.15)",
-          "rgba(0,123,255,0.6)",
-        ];
-      default:
-        return [
-          "rgba(139,92,246,",
-          "rgba(59,130,246,0.15)",
-          "rgba(139,92,246,0.6)",
-        ];
-    }
+    setSleepTime(null);
+    setSleepCountdown(null);
   };
-
-  // ---------------------------------
-  // Timeline tracking
-  // ---------------------------------
 
   useEffect(() => {
-    if (!isPlaying) return;
+    if (!isPlaying) {
+      setSleepTime(null);
+      setSleepCountdown(null);
+
+      return;
+    }
+
     const ctx = audioCtxRef.current!;
+
     const id = setInterval(() => {
       const elapsed = ctx.currentTime - startedAtCtxTimeRef.current;
       const newPos = startTimelineRef.current + elapsed;
+
       setTimelinePos(Math.min(newPos, totalDuration));
+
       if (newPos >= totalDuration) {
         setIsPlaying(false);
         stopSources();
       }
     }, 100);
+
     return () => clearInterval(id);
-  }, [isPlaying, totalDuration]);
-
-  // ---------------------------------
-  // Audio-reactive visuals
-  // ---------------------------------
-
-  useEffect(() => {
-    const analyser = analyserRef.current;
-
-    if (!analyser) return;
-
-    const dataArray = new Uint8Array(analyser.frequencyBinCount);
-    let raf: number;
-
-    const tick = () => {
-      analyser.getByteFrequencyData(dataArray);
-      const sum = dataArray.reduce((a, b) => a + b, 0);
-      setEnergy(sum / (dataArray.length * 255));
-      raf = requestAnimationFrame(tick);
-    };
-
-    tick();
-
-    return () => cancelAnimationFrame(raf);
-  }, [tracks]);
-
-  // Waveform overview of entire timeline with current playback marker
-  useEffect(() => {
-    if (!waveformCanvasRef.current || !tracks.length) return;
-    const canvas = waveformCanvasRef.current;
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return;
-    const width = canvas.width;
-    const height = canvas.height;
-
-    const mergedData: number[] = [];
-    tracks.forEach((track) => {
-      const raw = track.buffer.getChannelData(0);
-      const step = Math.ceil(raw.length / (width / tracks.length));
-      for (let i = 0; i < raw.length; i += step) {
-        mergedData.push(raw[i]);
-      }
-    });
-
-    const draw = () => {
-      ctx.clearRect(0, 0, width, height);
-      const middle = height / 2;
-      const playedWidth = Math.floor((timelinePos / totalDuration) * width);
-
-      mergedData.forEach((val, i) => {
-        const y = val * middle;
-        if (i <= playedWidth) {
-          ctx.fillStyle = "#8B5CF6"; // bright color for played
-        } else {
-          ctx.fillStyle = "rgba(139,92,246,0.3)"; // dimmed color for unplayed
-        }
-        ctx.fillRect(i, middle - y, 1, y * 2);
-      });
-
-      requestAnimationFrame(draw);
-    };
-
-    draw();
-  }, [tracks, timelinePos, totalDuration]);
-
-  useEffect(() => {
-    if (sleepTime === null) {
-      return;
-    }
-
-    const interval = setInterval(() => {
-      setSleepCountdown((prev) => {
-        if (prev === null) return null;
-        if (prev <= 1) {
-          clearInterval(interval);
-          return 0;
-        }
-        return prev - 1;
-      });
-    }, 1000);
-
-    return () => clearInterval(interval);
-  }, [sleepTime]);
+  }, [
+    isPlaying,
+    setIsPlaying,
+    setSleepCountdown,
+    setSleepTime,
+    setTimelinePos,
+    totalDuration,
+  ]);
 
   return (
-    <div className="min-h-screen p-6 bg-background">
-      <Card className="max-w-4xl mx-auto">
-        <CardContent className="space-y-6">
-          <h1 className="text-3xl font-bold">Auto-DJ</h1>
+    <div className="mx-auto grid h-screen max-w-6xl grid-cols-2 grid-rows-[auto_1fr] gap-x-4 gap-y-10 overflow-hidden p-2">
+      <h1 className="col-span-2 text-center text-3xl font-bold underline">
+        Auto DJ
+      </h1>
 
-          <input
-            type="file"
-            accept="audio/*"
-            multiple
-            onChange={(e) => handleFiles(e.target.files)}
-          />
+      <div className="flex flex-col gap-2 overflow-hidden">
+        <TracksUploader
+          audioCtxRef={audioCtxRef}
+          startTimelineRef={startTimelineRef}
+          initAudio={initAudio}
+        />
 
-          <div className="space-y-2">
-            {tracks.map((t, i) => {
-              const isPlayingTrack = currentTrackIndex === i;
+        <Suspense
+          fallback={
+            <div className="flex h-full w-full flex-col items-center justify-center">
+              Loading...
+            </div>
+          }
+        >
+          <Tracks startTimelineRef={startTimelineRef} />
+        </Suspense>
+      </div>
 
-              return (
-                <div
-                  key={t.id}
-                  className={`flex justify-between items-center border p-2 rounded transition
-                            ${
-                              isPlayingTrack
-                                ? "bg-violet-500/10 border-violet-500"
-                                : ""
-                            }`}
-                >
-                  <span className="truncate max-w-[70%]">
-                    {t.file.name}
-                    {isPlayingTrack && "  ▶ Playing"}
-                  </span>
-
-                  <div className="flex gap-1">
-                    <Button
-                      size="sm"
-                      disabled={isPlayingTrack}
-                      onClick={() => deleteTrack(t.id)}
-                    >
-                      X
-                    </Button>
-
-                    <Button
-                      size="sm"
-                      disabled={i === 0 || isPlayingTrack}
-                      onClick={() => {
-                        const n = [...tracks];
-                        [n[i - 1], n[i]] = [n[i], n[i - 1]];
-                        setTracks(n);
-                      }}
-                    >
-                      ↑
-                    </Button>
-
-                    <Button
-                      size="sm"
-                      disabled={i === tracks.length - 1 || isPlayingTrack}
-                      onClick={() => {
-                        const n = [...tracks];
-                        [n[i + 1], n[i]] = [n[i], n[i + 1]];
-                        setTracks(n);
-                      }}
-                    >
-                      ↓
-                    </Button>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-
-          <div className="space-y-2">
-            <label>Timeline</label>
-            <Slider
-              key="timeline"
-              min={0}
-              max={totalDuration}
-              step={0.1}
-              value={[timelinePos]}
-              onValueChange={(v) => {
-                setTimelinePos(v[0]);
-                scheduleFromTimeline(v[0]);
-              }}
+      <div className="flex flex-col gap-4 overflow-hidden">
+        {tracks.length ? (
+          <Suspense
+            fallback={
+              <div className="flex h-full w-full flex-col items-center justify-center">
+                Loading...
+              </div>
+            }
+          >
+            <Player scheduleFromTimeline={scheduleFromTimeline} />
+            <Waveform />
+            <PlayerButtons
+              scheduleFromTimeline={scheduleFromTimeline}
+              pausePlayback={pausePlayback}
+              stopAll={stopAll}
             />
-            <div className="text-xs text-muted-foreground">
-              {timelinePos.toFixed(1)}s / {totalDuration.toFixed(1)}s
-            </div>
-          </div>
-
-          <div className="flex gap-2">
-            <Button
-              onClick={() => scheduleFromTimeline(timelinePos)}
-              disabled={isPlaying || !tracks.length}
-            >
-              Play
-            </Button>
-            <Button onClick={pausePlayback} disabled={!isPlaying}>
-              Pause
-            </Button>
-            <Button onClick={stopAll} disabled={!isPlaying}>
-              Stop
-            </Button>
-          </div>
-
-          <div className="flex gap-2 items-center">
-            <span>Sleep Timer:</span>
-            <Button
-              onClick={() => scheduleSleepTimer(600)}
-              variant={sleepTime === 600 ? "default" : "secondary"}
-            >
-              10 min
-            </Button>
-            <Button
-              onClick={() => scheduleSleepTimer(1200)}
-              variant={sleepTime === 1200 ? "default" : "secondary"}
-            >
-              20 min
-            </Button>
-            <Button
-              onClick={() => scheduleSleepTimer(1800)}
-              variant={sleepTime === 1800 ? "default" : "secondary"}
-            >
-              30 min
-            </Button>
-            <Button
-              onClick={() => scheduleSleepTimer(2400)}
-              variant={sleepTime === 2400 ? "default" : "secondary"}
-            >
-              40 min
-            </Button>
-            <Button
-              onClick={() => scheduleSleepTimer(3000)}
-              variant={sleepTime === 3000 ? "default" : "secondary"}
-            >
-              50 min
-            </Button>
-            <Button
-              onClick={() => scheduleSleepTimer(3600)}
-              variant={sleepTime === 3600 ? "default" : "secondary"}
-            >
-              1 hour
-            </Button>
-            <Button
-              onClick={() => scheduleSleepTimer(7200)}
-              variant={sleepTime === 7200 ? "default" : "secondary"}
-            >
-              2 hours
-            </Button>
-            <Button
-              onClick={() => scheduleSleepTimer(14400)}
-              variant={sleepTime === 14400 ? "default" : "secondary"}
-            >
-              4 hours
-            </Button>
-          </div>
-
-          {sleepCountdown !== null && (
-            <div className="flex items-center gap-2">
-              <span className="text-sm text-muted-foreground">
-                Sleep timer ends in: {formatTime(sleepCountdown)}
-              </span>
-              <Button variant="outline" onClick={resetSleepTimer}>
-                Reset Sleep Timer
-              </Button>
-            </div>
-          )}
-
-          <div className="text-sm text-muted-foreground">
-            {sleepTime
-              ? `Sleep timer: ${(sleepTime / 60).toFixed(0)} min`
-              : "No sleep timer set"}
-          </div>
-
-          <canvas
-            ref={waveformCanvasRef}
-            width={800}
-            height={100}
-            className="rounded-2xl border w-full"
-          />
-
-          <div className="space-y-2">
-            <label className="font-medium">EQ Presets</label>
-            <div className="flex gap-2">
-              <Button
-                variant={eqPreset === "flat" ? "default" : "outline"}
-                onClick={() => {
-                  setEqPreset("flat");
-                  eqNodesRef.current[0].gain.value = 0;
-                  eqNodesRef.current[1].gain.value = 0;
-                  eqNodesRef.current[2].gain.value = 0;
-                }}
-              >
-                Flat
-              </Button>
-
-              <Button
-                variant={eqPreset === "club" ? "default" : "outline"}
-                onClick={() => {
-                  setEqPreset("club");
-                  eqNodesRef.current[0].gain.value = 4;
-                  eqNodesRef.current[1].gain.value = 2;
-                  eqNodesRef.current[2].gain.value = 4;
-                }}
-              >
-                Club
-              </Button>
-
-              <Button
-                variant={eqPreset === "bass" ? "default" : "outline"}
-                onClick={() => {
-                  setEqPreset("bass");
-                  eqNodesRef.current[0].gain.value = 8;
-                  eqNodesRef.current[1].gain.value = -2;
-                  eqNodesRef.current[2].gain.value = 3;
-                }}
-              >
-                Bass Boost
-              </Button>
-            </div>
-          </div>
-
-          <div className="space-y-1">
-            <label className="text-sm">EQ Mix (Dry / Wet)</label>
-            <Slider
-              min={0}
-              max={1}
-              step={0.01}
-              value={[eqMix]}
-              onValueChange={(v) => {
-                const mix = v[0];
-                setEqMix(mix);
-                if (eqDryGainRef.current && eqWetGainRef.current) {
-                  eqDryGainRef.current.gain.value = 1 - mix;
-                  eqWetGainRef.current.gain.value = mix;
-                }
-              }}
+            <Volume audioCtxRef={audioCtxRef} masterGainRef={masterGainRef} />
+            <SleepTimer sleepTimeoutRef={sleepTimeoutRef} stopAll={stopAll} />
+            <EQ
+              eqNodesRef={eqNodesRef}
+              eqDryGainRef={eqDryGainRef}
+              eqWetGainRef={eqWetGainRef}
             />
+            <Visualizer analyserRef={analyserRef} />
+          </Suspense>
+        ) : (
+          <div className="flex h-full w-full flex-col items-center justify-center">
+            <Disc3Icon className="animate-spin" />
           </div>
-
-          <div
-            className="h-40 rounded-2xl transition-all"
-            style={{
-              background: `radial-gradient(circle, ${
-                getVisualColors()[0]
-              }${energy}), ${getVisualColors()[1]})`,
-              transform: `scale(${1 + energy * 0.05})`,
-              boxShadow: `0 0 ${energy * 60}px ${getVisualColors()[2]}`,
-            }}
-          />
-
-          <div className="flex gap-2">
-            <Button
-              onClick={() => setVisualPreset("purple")}
-              variant={visualPreset === "purple" ? "default" : "outline"}
-            >
-              Purple
-            </Button>
-            <Button
-              onClick={() => setVisualPreset("sunset")}
-              variant={visualPreset === "sunset" ? "default" : "outline"}
-            >
-              Sunset
-            </Button>
-            <Button
-              onClick={() => setVisualPreset("ocean")}
-              variant={visualPreset === "ocean" ? "default" : "outline"}
-            >
-              Ocean
-            </Button>
-          </div>
-        </CardContent>
-      </Card>
+        )}
+      </div>
     </div>
   );
 };
 
 export default App;
-

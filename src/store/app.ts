@@ -14,7 +14,9 @@ export interface IAppStoreState {
   eqPreset: EqPreset;
   eqMix: number;
   visualPreset: VisualPreset;
+  volume: number;
   sleepTime: number | null;
+  sleepCountdown: number | null;
 }
 
 export interface IAppStoreActions {
@@ -27,7 +29,9 @@ export interface IAppStoreActions {
   setEqPreset: (eqPreset: EqPreset) => void;
   setEqMix: (eqMix: number) => void;
   setVisualPreset: (visualPreset: VisualPreset) => void;
+  setVolume: (volume: number) => void;
   setSleepTime: (sleepTime: number | null) => void;
+  setSleepCountdown: (sleepCountdown: number | null) => void;
 }
 
 const initialStoreState: IAppStoreState = {
@@ -40,18 +44,20 @@ const initialStoreState: IAppStoreState = {
   eqPreset: "flat",
   eqMix: 1,
   visualPreset: "purple",
+  volume: 1,
   sleepTime: null,
+  sleepCountdown: null,
 };
 
 export const useAppStore = create(
-  immer<IAppStoreState & IAppStoreActions>((set, get) => ({
+  immer<IAppStoreState & IAppStoreActions>((set) => ({
     ...initialStoreState,
 
     setTracks: (tracks) => {
       set(
         produce((draft) => {
           draft.tracks = tracks;
-        })
+        }),
       );
     },
 
@@ -59,7 +65,7 @@ export const useAppStore = create(
       set(
         produce((draft) => {
           draft.isPlaying = isPlaying;
-        })
+        }),
       );
     },
 
@@ -67,7 +73,7 @@ export const useAppStore = create(
       set(
         produce((draft) => {
           draft.timelinePos = timelinePos;
-        })
+        }),
       );
     },
 
@@ -75,7 +81,7 @@ export const useAppStore = create(
       set(
         produce((draft) => {
           draft.totalDuration = totalDuration;
-        })
+        }),
       );
     },
 
@@ -83,7 +89,7 @@ export const useAppStore = create(
       set(
         produce((draft) => {
           draft.energy = energy;
-        })
+        }),
       );
     },
 
@@ -91,7 +97,7 @@ export const useAppStore = create(
       set(
         produce((draft) => {
           draft.currentTrackIndex = currentTrackIndex;
-        })
+        }),
       );
     },
 
@@ -99,7 +105,7 @@ export const useAppStore = create(
       set(
         produce((draft) => {
           draft.eqPreset = eqPreset;
-        })
+        }),
       );
     },
 
@@ -107,7 +113,7 @@ export const useAppStore = create(
       set(
         produce((draft) => {
           draft.eqMix = eqMix;
-        })
+        }),
       );
     },
 
@@ -115,7 +121,15 @@ export const useAppStore = create(
       set(
         produce((draft) => {
           draft.visualPreset = visualPreset;
-        })
+        }),
+      );
+    },
+
+    setVolume: (volume) => {
+      set(
+        produce((draft) => {
+          draft.volume = volume;
+        }),
       );
     },
 
@@ -123,8 +137,16 @@ export const useAppStore = create(
       set(
         produce((draft) => {
           draft.sleepTime = sleepTime;
-        })
+        }),
       );
     },
-  }))
+
+    setSleepCountdown: (sleepCountdown) => {
+      set(
+        produce((draft) => {
+          draft.sleepCountdown = sleepCountdown;
+        }),
+      );
+    },
+  })),
 );
