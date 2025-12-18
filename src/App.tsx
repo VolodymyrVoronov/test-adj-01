@@ -296,7 +296,7 @@ const App = () => {
         </Suspense>
       </div>
 
-      <div className="flex flex-col gap-4 overflow-hidden">
+      <div className="flex flex-col gap-4 overflow-x-hidden">
         {tracks.length ? (
           <Suspense
             fallback={
