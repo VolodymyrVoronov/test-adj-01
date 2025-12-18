@@ -5,6 +5,7 @@ import { defineConfig } from "vite";
 
 // https://vite.dev/config/
 export default defineConfig({
+  base: process.env.NODE_ENV === "production" ? "/test-adj-01/" : "/",
   plugins: [
     react({
       babel: {
@@ -19,4 +20,3 @@ export default defineConfig({
     },
   },
 });
-
